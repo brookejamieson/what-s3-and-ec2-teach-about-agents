@@ -1,0 +1,4 @@
+.venv/
+__pycache__/
+# Written by the setup scripts. Holds your account ID and resource IDs.
+infra/state.json

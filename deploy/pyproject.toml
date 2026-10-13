@@ -1,0 +1,15 @@
+[project]
+name = "account-agent"
+version = "0.1.0"
+description = "Answers questions about this AWS account and finds re:Invent 2026 sessions"
+requires-python = ">=3.10"
+# The AgentCore CLI packages dependencies from this list (requirements.txt is for local runs).
+# aws-opentelemetry-distro provides the opentelemetry-instrument wrapper Runtime starts the agent with.
+dependencies = [
+    "strands-agents==1.59.0",
+    "mcp==1.30.0",
+    "mcp-proxy-for-aws==1.7.0",
+    "bedrock-agentcore==1.24.1",
+    "boto3==1.43.112",
+    "aws-opentelemetry-distro==0.21.0",
+]

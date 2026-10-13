@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live call</title>
+<style>
+/* Deck look (DevEx style): Gray 1000 surface, white ink, one accent (Cyan 300).
+   Square corners, no gradients. */
+:root {
+  --surface: #06080A; --ink: #FFFFFF; --accent: #3DEFFF; --on-accent: #06080A;
+  --dim: #9A9C9E;  /* only on --surface: 7.3:1 */
+  --display: system-ui, sans-serif;
+  --mono: ui-monospace, monospace;
+  --enter: 250ms cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--surface); color: var(--ink); }
+body { font-family: var(--display); display: grid; grid-template-rows: auto 1fr; padding: 64px 80px; gap: 48px; }
+
+header { display: flex; align-items: center; }
+.chip { font: 32px/1 var(--mono); text-transform: uppercase; background: var(--accent); color: var(--on-accent); padding: 12px 18px; }
+#status { margin-left: auto; display: flex; align-items: center; gap: 16px; font: 28px/1 var(--mono); text-transform: uppercase; color: var(--dim); }
+#meter { display: flex; gap: 4px; align-items: flex-end; height: 28px; }
+#meter i { width: 6px; height: 6px; background: var(--dim); transition: height 80ms linear; }
+#status[data-state="listening"] #meter i { background: var(--ink); }
+
+main { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); gap: 64px; min-height: 0; }
+
+/* the call */
+#call { display: flex; flex-direction: column; gap: 32px; min-height: 0; }
+#transcript { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 36px; scrollbar-width: none; }
+#transcript::-webkit-scrollbar { display: none; }
+.empty { margin: auto 0; font: 64px/1.15 var(--display); color: var(--dim); max-width: 900px; }
+.turn { animation: rise var(--enter) both; }
+.who { font: 28px/1 var(--mono); color: var(--accent); margin-bottom: 14px; }
+.said { font: 52px/1.15 var(--display); color: var(--ink); }
+.turn.old .who { color: var(--dim); }
+.turn.old .said { font-size: 32px; color: var(--dim); }
+/* Earlier turns stay in the transcript: scroll up (trackpad or wheel) to read them. */
+.used { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+.used span { font: 22px/1 var(--mono); color: var(--dim); border: 2px solid var(--dim); padding: 8px 12px; }
+.turn.old .used { display: none; }
+
+#controls { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; }
+#dial { font: 36px/1 var(--display); padding: 20px 32px; cursor: pointer; border: 3px solid var(--accent);
+  background: var(--accent); color: var(--on-accent); }
+#dial.live { background: transparent; color: var(--ink); border-color: var(--ink); }
+#dial:focus-visible, #typed:focus-visible { outline: 3px solid var(--ink); outline-offset: 4px; }
+#typed { width: 640px; max-width: 100%; font: 24px/1.2 var(--mono); color: var(--ink); background: transparent;
+  border: 2px solid var(--dim); padding: 18px 20px; }
+#typed::placeholder { color: var(--dim); }
+#typed-form[hidden] { display: none; }
+#error { flex: 0 0 100%; font: 24px/1.3 var(--mono); color: var(--ink); }
+#error:empty { display: none; }
+#error::before { content: "ERROR  "; color: var(--on-accent); background: var(--accent); padding: 2px 8px; margin-right: 12px; }
+
+/* the account agent's terminal */
+#lookup { display: flex; flex-direction: column; min-height: 0; border: 3px solid var(--dim); transition: border-color 150ms ease-out; }
+#lookup.active { border-color: var(--accent); }
+.term-head { font: 28px/1 var(--mono); padding: 20px 28px; border-bottom: 3px solid var(--dim); }
+#lookup.active .term-head { border-color: var(--accent); }
+#log { flex: 1; min-height: 0; overflow-y: auto; padding: 24px 28px; font: 24px/1.5 var(--mono); scrollbar-width: none; font-variant-ligatures: none; }
+#log::-webkit-scrollbar { display: none; }
+#log div { white-space: pre-wrap; word-break: break-word; animation: rise var(--enter) both; }
+#log .gap { height: 24px; }
+.d { color: var(--dim); }
+.a { color: var(--accent); }
+.code { color: var(--dim); padding-left: 2ch; white-space: pre !important; overflow: hidden; text-overflow: ellipsis; }
+#log .clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 2ch; }
+
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <span class="chip">Live call</span>
+  <div id="status" data-state="idle" role="status" aria-live="polite">
+    <div id="meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <span id="state-text">Ready</span>
+  </div>
+</header>
+
+<main>
+  <section id="call" aria-label="The call">
+    <div id="transcript" aria-live="polite">
+      <div class="empty" id="empty">Pick up the phone and ask about this AWS account.</div>
+    </div>
+    <div id="controls">
+      <button id="dial" type="button">Call my account</button>
+      <form id="typed-form" hidden><input id="typed" type="text" autocomplete="off" aria-label="Type a question instead" placeholder="Or type a question"></form>
+      <span id="error" role="alert"></span>
+    </div>
+  </section>
+
+  <section id="lookup" aria-label="What the account agent is doing">
+    <div class="term-head">account agent</div>
+    <div id="log">
+      <div class="d">tools: aws___run_script, search_reinvent_catalog</div>
+      <div class="d">read-only profile</div>
+      <div class="gap"></div>
+      <div class="d" id="waiting">waiting for a question</div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const transcript = $("#transcript"), log = $("#log"), dial = $("#dial"), lookup = $("#lookup");
+const SCRIPT_LINES = 6;  // first lines of the script it writes; the full script is on slide 12
+
+let ws = null, micCtx = null, micStream = null, playCtx = null;
+let nextTime = 0, playing = [], inFlight = 0, lastTools = [];
+
+// ---------- status ----------
+function setState(state, text) {
+  $("#status").dataset.state = state;
+  $("#state-text").textContent = text;
+  lookup.classList.toggle("active", state === "checking");
+}
+setInterval(() => {
+  if (!ws) return setState("idle", "Ready");
+  if (inFlight > 0) return setState("checking", "Checking the account");
+  if (playCtx && nextTime > playCtx.currentTime + 0.05) return setState("speaking", "Talking");
+  setState("listening", "Listening");
+}, 150);
+
+// ---------- transcript ----------
+const turns = new Map();
+function turnFor(id, role) {
+  if (turns.has(id)) return turns.get(id);
+  $("#empty")?.remove();
+  transcript.querySelectorAll(".turn:not(.old)").forEach((t) => { if (t.dataset.id !== id) t.classList.add("old"); });
+  const el = document.createElement("div");
+  el.className = `turn ${role}`;
+  el.dataset.id = id;
+  el.innerHTML = `<div class="who">${role === "assistant" ? "agent" : "caller"}</div><div class="said"></div>`;
+  transcript.appendChild(el);
+  turns.set(id, el);
+  return el;
+}
+// The voice writes its transcript the way it speaks ("EC 2", "three point nine").
+// Put AWS names and versions back the way they're written on screen.
+const SPOKEN = [
+  [/\bEC 2\b/g, "EC2"], [/\bS 3\b/g, "S3"], [/\bre:? ?Invent\b/gi, "re:Invent"],
+  [/\bEC ?(2|two)\b/gi, "EC2"], [/\bS ?(3|three) (?=bucket)/gi, "S3 "],
+  [/\bPython (\w+) point (\w+)\b/g, (m, a, b) => `Python ${num(a)}.${num(b)}`],
+  [/\b(three) point (\w+)\b/gi, (m, a, b) => `${num(a)}.${num(b)}`],
+  [/\b(\w+) (thirty|fifteen|forty[- ]five) ([ap])\.? ?m\.?\b/gi,
+   (m, h, mm, ap) => `${num(h)}:${{ thirty: "30", fifteen: "15" }[mm.toLowerCase()] || "45"} ${ap.toLowerCase()}m`],
+  [/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) ([ap])\.? ?m\b/gi,
+   (m, h, ap) => `${num(h)} ${ap.toLowerCase()}m`],
+];
+const WORDS = ["zero","one","two","three","four","five","six","seven","eight","nine","ten","eleven","twelve","thirteen","fourteen"];
+const num = (w) => (WORDS.includes(w.toLowerCase()) ? WORDS.indexOf(w.toLowerCase()) : w);
+const written = (s) => SPOKEN.reduce((t, [re, to]) => t.replace(re, to), s);
+
+function showTranscript(msg, done) {
+  // Follow the conversation only if you haven't scrolled up to read earlier turns.
+  const atBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 80;
+  const el = turnFor(msg.id, msg.role);
+  const said = el.querySelector(".said");
+  said.textContent = written(done ? msg.text : said.textContent + msg.text);
+  // the tools behind this answer go under it, once
+  if (done && msg.role === "assistant" && lastTools.length) {
+    const box = document.createElement("div");
+    box.className = "used";
+    lastTools.forEach((t) => box.appendChild(Object.assign(document.createElement("span"), { textContent: t })));
+    el.appendChild(box);
+    lastTools = [];
+  }
+  if (atBottom) transcript.scrollTop = transcript.scrollHeight;
+}
+
+// ---------- account agent terminal ----------
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let toolsThisLookup = [];
+function line(html, cls = "") {
+  $("#waiting")?.remove();
+  const el = document.createElement("div");
+  if (cls) el.className = cls;
+  el.innerHTML = html;
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+}
+function showLookup(step) {
+  if (step.kind === "question") {
+    inFlight++;
+    toolsThisLookup = [];
+    if (log.querySelectorAll(".q").length) line("", "gap");
+    line(`<span class="d">&gt;</span> ask_my_account(<span class="a">"${esc(step.question)}"</span>)`, "q");
+  } else if (step.kind === "call") {
+    if (!toolsThisLookup.includes(step.tool)) toolsThisLookup.push(step.tool);
+    if (step.code) {
+      line(`  ${esc(step.tool)}`);
+      const lines = step.code.split("\n").filter((l) => l.trim());
+      lines.slice(0, SCRIPT_LINES).forEach((l) => line(esc(l), "code"));
+      if (lines.length > SCRIPT_LINES) line(`... ${lines.length - SCRIPT_LINES} more lines`, "code");
+    } else {
+      line(`  ${esc(step.tool)}(<span class="a">"${esc(step.query)}"</span>)`);
+    }
+  } else if (step.kind === "result") {
+    line(`<span class="${step.ok ? "a" : ""}">${step.ok ? "ok" : "error"}</span> <span class="d">${esc(step.summary)}</span>`, "clip");
+  } else if (step.kind === "answer") {
+    inFlight = Math.max(0, inFlight - 1);
+    line(`<span class="d">&lt; answer handed to the voice</span>`);
+    lastTools = toolsThisLookup;
+  }
+}
+
+// ---------- audio out (24 kHz PCM16 from the server) ----------
+function playPcm(buf) {
+  const pcm = new Int16Array(buf);
+  const audio = playCtx.createBuffer(1, pcm.length, 24000);
+  const ch = audio.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+  const src = playCtx.createBufferSource();
+  src.buffer = audio;
+  src.connect(playCtx.destination);
+  nextTime = Math.max(nextTime, playCtx.currentTime + 0.04);
+  src.start(nextTime);
+  nextTime += audio.duration;
+  playing.push(src);
+  src.onended = () => { playing = playing.filter((s) => s !== src); };
+}
+function stopPlayback() {
+  playing.forEach((s) => { try { s.stop(); } catch {} });
+  playing = [];
+  nextTime = playCtx ? playCtx.currentTime : 0;
+}
+
+// ---------- audio in (mic -> 16 kHz PCM16, 20 ms frames), from the Strands Hotline ----------
+const WORKLET = `
+class Mic extends AudioWorkletProcessor {
+  constructor() { super(); this.step = sampleRate / 16000; this.pos = 0; this.last = 0; this.buf = new Int16Array(320); this.n = 0; }
+  process(inputs) {
+    const ch = inputs[0][0];
+    if (!ch) return true;
+    let peak = 0;
+    while (this.pos < ch.length) {
+      const i = Math.floor(this.pos), frac = this.pos - i;
+      const a = i === 0 ? this.last : ch[i - 1], b = ch[i];
+      const v = Math.max(-1, Math.min(1, a + (b - a) * frac));
+      peak = Math.max(peak, Math.abs(v));
+      this.buf[this.n++] = v < 0 ? v * 0x8000 : v * 0x7fff;
+      if (this.n === this.buf.length) { this.port.postMessage(this.buf.buffer.slice(0)); this.n = 0; }
+      this.pos += this.step;
+    }
+    this.pos -= ch.length;
+    this.last = ch[ch.length - 1];
+    this.port.postMessage({ peak });
+    return true;
+  }
+}
+registerProcessor("mic", Mic);`;
+
+async function startMic() {
+  if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error("insecure"), { name: "InsecureContext" });
+  micStream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+  });
+  micCtx = new AudioContext();
+  await micCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" })));
+  const worklet = new AudioWorkletNode(micCtx, "mic");
+  const bars = [...document.querySelectorAll("#meter i")];
+  worklet.port.onmessage = (e) => {
+    if (e.data instanceof ArrayBuffer) { if (ws?.readyState === 1) ws.send(e.data); return; }
+    const level = Math.min(1, e.data.peak * 3);
+    bars.forEach((b, i) => { b.style.height = `${6 + Math.max(0, level * 22 - i * 3)}px`; });
+  };
+  micCtx.createMediaStreamSource(micStream).connect(worklet);
+}
+
+function micErrorText(err) {
+  const msg = String(err?.message || "");
+  if (err?.name === "InsecureContext") return "The mic only works on http://127.0.0.1:8766. Open the page there.";
+  if (err?.name === "NotAllowedError" && /system/i.test(msg))
+    return "macOS is blocking Chrome's mic. System Settings > Privacy & Security > Microphone > Chrome, then restart Chrome.";
+  if (err?.name === "NotAllowedError") return "Chrome blocked the mic. Allow Microphone from the icon left of the address bar, then reload.";
+  if (err?.name === "NotFoundError") return "No microphone found. Plug the handset in or pick it in Chrome's settings.";
+  if (err?.name === "NotReadableError") return "Another app is using the mic. Close it and try again.";
+  return `Couldn't start the mic: ${err?.name || "Error"}: ${msg}`;
+}
+function callErrorText(text) {
+  if (/Timed out waiting for audio/i.test(text)) return "The line went quiet for too long and the call dropped. Call again.";
+  if (/credential|ExpiredToken|security token/i.test(text)) return "AWS credentials missing or expired. Refresh them and restart the server.";
+  return `The call dropped: ${text}`;
+}
+
+// ---------- call ----------
+async function startCall() {
+  $("#error").textContent = "";
+  dial.disabled = true;
+  try {
+    playCtx = new AudioContext();
+    await startMic();
+  } catch (err) {
+    $("#error").textContent = micErrorText(err);
+    micStream?.getTracks().forEach((t) => t.stop());
+    micCtx?.close(); playCtx?.close();
+    micStream = micCtx = playCtx = null;
+    dial.disabled = false;
+    return;
+  }
+  ws = new WebSocket(`ws://${location.host}/call`);
+  ws.binaryType = "arraybuffer";
+  ws.onmessage = (e) => {
+    if (e.data instanceof ArrayBuffer) return playPcm(e.data);
+    const msg = JSON.parse(e.data);
+    if (msg.type === "transcript_delta") showTranscript(msg, false);
+    else if (msg.type === "transcript_done") showTranscript(msg, true);
+    else if (msg.type === "barge_in") stopPlayback();
+    else if (msg.type === "lookup") showLookup(msg);
+    else if (msg.type === "error") $("#error").textContent = callErrorText(msg.text);
+    else if (msg.type === "status" && msg.text === "ended") endCall(false);
+  };
+  ws.onopen = () => { dial.disabled = false; dial.textContent = "Hang up"; dial.classList.add("live"); $("#typed-form").hidden = false; };
+  ws.onclose = () => endCall(false);
+}
+
+function endCall(sendHangup = true) {
+  if (sendHangup && ws?.readyState === 1) ws.send(JSON.stringify({ type: "hangup" }));
+  const ctx = playCtx, wait = ctx ? Math.max(0, (nextTime - ctx.currentTime) * 1000) : 0;
+  if (!sendHangup) setTimeout(() => ctx?.close(), wait); else { stopPlayback(); ctx?.close(); }
+  micStream?.getTracks().forEach((t) => t.stop());
+  micCtx?.close();
+  ws = micCtx = micStream = playCtx = null; inFlight = 0;
+  dial.disabled = false; dial.textContent = "Call my account"; dial.classList.remove("live");
+  $("#typed-form").hidden = true;
+  document.querySelectorAll("#meter i").forEach((b) => { b.style.height = "6px"; });
+}
+
+// Typed fallback for a noisy room: the text goes to the voice as if spoken.
+$("#typed-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = $("#typed").value.trim();
+  if (!text || ws?.readyState !== 1) return;
+  ws.send(JSON.stringify({ type: "text", text }));
+  turnFor(`typed-${Date.now()}`, "user").querySelector(".said").textContent = text;
+  $("#typed").value = "";
+});
+
+dial.addEventListener("click", () => (ws ? endCall(true) : startCall()));
+</script>
+</body>
+</html>

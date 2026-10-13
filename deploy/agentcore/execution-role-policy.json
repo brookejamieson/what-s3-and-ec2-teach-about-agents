@@ -1,0 +1,45 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadTheTalkCatalog",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::talk-catalog-*/catalog/reinvent2026.json"
+    },
+    {
+      "Sid": "DescribeEc2",
+      "Effect": "Allow",
+      "Action": "ec2:Describe*",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadS3BucketConfiguration",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListAllMyBuckets",
+        "s3:GetBucket*",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetReplicationConfiguration",
+        "s3:GetAccountPublicAccessBlock"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadLambdaConfiguration",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:ListFunctions",
+        "lambda:GetFunctionConfiguration",
+        "lambda:ListTags",
+        "lambda:GetPolicy",
+        "lambda:ListFunctionUrlConfigs",
+        "lambda:GetFunctionUrlConfig",
+        "lambda:ListEventSourceMappings",
+        "lambda:GetAccountSettings"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
